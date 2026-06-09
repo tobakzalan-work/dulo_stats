@@ -1,0 +1,832 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Magyarországi Borvidékek Dűlő Statisztikái</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- PapaParse CDN for CSV parsing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <!-- FontAwesome for elegant icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        wine: {
+                            50: '#fdf2f4',
+                            100: '#fbe5e9',
+                            200: '#f7ccd5',
+                            300: '#f1a3b3',
+                            400: '#e56f89',
+                            500: '#d44365',
+                            600: '#be294e',
+                            700: '#9f1d3e',
+                            800: '#841b37',
+                            900: '#701a31',
+                            950: '#3e0a16',
+                        },
+                    },
+                    fontFamily: {
+                        serif: ['Playfair Display', 'Georgia', 'serif'],
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&display=swap');
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #be294e;
+            border-radius: 3px;
+        }
+        @media print {
+            .no-print {
+                display: none !important;
+            }
+            .print-page-break {
+                page-break-after: always;
+            }
+            body {
+                background-color: white !important;
+                color: black !important;
+            }
+        }
+    </style>
+</head>
+<body class="bg-[#faf8f5] text-gray-800 font-sans min-h-screen flex flex-col">
+
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-wine-950 to-wine-900 text-white py-6 px-4 shadow-xl no-print">
+        <div class="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-4">
+            <div class="flex items-center gap-4">
+                <div class="p-3 bg-wine-800 rounded-lg shadow-inner">
+                    <i class="fa-solid fa-wine-glass-alt text-3xl text-wine-200"></i>
+                </div>
+                <div>
+                    <h1 class="font-serif text-2xl md:text-3xl font-bold tracking-wide">Dűlők Domborzati Statisztikái</h1>
+                    <p class="text-wine-200 text-sm mt-0.5">Magyarországi borvidékek dűlőinek geomorfológiai elemzője</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3">
+                <button onclick="window.print()" class="bg-wine-700 hover:bg-wine-600 px-4 py-2 rounded-lg text-sm font-semibold transition flex items-center gap-2 shadow-md">
+                    <i class="fa-solid fa-print"></i> Riport Nyomtatása / PDF
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow max-w-7xl w-full mx-auto p-4 md:p-6 flex flex-col gap-6">
+        
+        <!-- File Upload / Drag & Drop -->
+        <div id="upload-section" class="bg-white rounded-xl shadow-md p-6 border-2 border-dashed border-wine-200 hover:border-wine-500 transition duration-300 no-print">
+            <div class="flex flex-col items-center justify-center text-center cursor-pointer py-6" id="drop-zone">
+                <i class="fa-solid fa-file-csv text-5xl text-wine-600 mb-3 animate-bounce"></i>
+                <h3 class="font-semibold text-lg text-gray-700 mb-1">Húzza ide az 'eredmenyek_osszevont.csv' fájlt</h3>
+                <p class="text-gray-500 text-sm mb-4">vagy kattintson a gombra a fájl kiválasztásához</p>
+                <input type="file" id="csv-file-input" accept=".csv" class="hidden">
+                <button onclick="document.getElementById('csv-file-input').click()" class="bg-wine-600 hover:bg-wine-700 text-white px-5 py-2 rounded-lg text-sm font-semibold shadow transition">
+                    Fájl Kiválasztása
+                </button>
+                <p class="text-xs text-gray-400 mt-3">Csak a 'core_' előtagú területi mutatókat dolgozzuk fel a pontos dűlőmag körvonalak alapján.</p>
+            </div>
+        </div>
+
+        <!-- App Instructions & Loading State -->
+        <div id="status-placeholder" class="bg-white rounded-xl shadow-md p-8 text-center flex flex-col items-center justify-center py-16">
+            <div class="w-16 h-16 rounded-full bg-wine-50 flex items-center justify-center text-wine-600 mb-4 text-2xl">
+                <i class="fa-solid fa-circle-info"></i>
+            </div>
+            <h2 class="font-serif text-xl font-bold text-gray-800 mb-2">Várakozás az adatokra</h2>
+            <p class="text-gray-600 max-w-md mx-auto">Töltse fel a CSV fájlt a fenti zónában az interaktív jelentések, diagramok és mélyreható geomorfológiai elemzések automatikus előállításához.</p>
+        </div>
+
+        <div id="loading-spinner" class="hidden bg-white rounded-xl shadow-md p-8 text-center flex flex-col items-center justify-center py-16">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-wine-700 mb-4"></div>
+            <p class="text-gray-600 font-semibold">Adatok feldolgozása és riportok generálása folyamatban...</p>
+        </div>
+
+        <!-- Main Dashboard View (Hidden until load) -->
+        <div id="dashboard-content" class="hidden flex flex-col lg:flex-row gap-6">
+            
+            <!-- Sidebar Navigation -->
+            <div class="lg:w-1/4 w-full flex flex-col gap-4 no-print">
+                <div class="bg-white rounded-xl shadow-md p-4 sticky top-6">
+                    <h3 class="font-serif font-bold text-wine-900 border-b pb-2 mb-3 text-lg flex items-center gap-2">
+                        <i class="fa-solid fa-map-location-dot"></i> Vizsgált Dűlők
+                    </h3>
+                    <div class="space-y-1 max-h-[60vh] overflow-y-auto custom-scrollbar pr-1" id="vineyard-menu">
+                        <!-- Dynamic Vineyard Links -->
+                    </div>
+                    <div class="mt-4 pt-3 border-t text-xs text-gray-500 flex flex-col gap-1">
+                        <span class="flex items-center gap-1"><span class="w-2.5 h-2.5 bg-green-500 rounded-full inline-block"></span> Sikeresen azonosítva</span>
+                        <p class="italic">Kattintson egy dűlőre az ugráshoz, vagy görgessen lejjebb az összesített riport megtekintéséhez.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Report Area -->
+            <div class="lg:w-3/4 w-full flex flex-col gap-8" id="reports-container">
+                <!-- Dynamic Reports populated here -->
+            </div>
+
+        </div>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-wine-950 text-wine-200 py-6 px-4 mt-12 text-center text-xs border-t border-wine-900 no-print">
+        <div class="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+            <p>© 2026 Magyarországi Borvidékek Dűlő Statisztikái. Minden jog fenntartva.</p>
+            <p class="flex items-center gap-1 justify-center">
+                Készült a GIS & Területi Statisztikai adatbázis alapján. <i class="fa-solid fa-grape text-wine-400"></i>
+            </p>
+        </div>
+    </footer>
+
+    <!-- JS Logic -->
+    <script>
+        // TARGET VINEYARDS CONFIGURATION
+        const targetVineyards = [
+            { id: 'kopar', name: 'Kopár-dűlő', searchIds: [717, 718], searchNames: ['Kopár'] },
+            { id: 'nagyeged', name: 'Nagy-Eged-hegy', searchIds: [], searchNames: ['Nagy-Eged', 'Eged-hegy', 'Eged'] },
+            { id: 'cserekuti', name: 'Csere-kúti-dűlő', searchIds: [], searchNames: ['Csere-kút', 'Cserekút'] },
+            { id: 'feketehegy', name: 'Fekete-hegy alja', searchIds: [], searchNames: ['Fekete-hegy alja'] },
+            { id: 'gorogszor', name: 'Görögszó-dűlő', searchIds: [439, 440], searchNames: ['Görögszó'] },
+            { id: 'slikker', name: 'Slikker-dűlő', searchIds: [], searchNames: ['Slikker'] },
+            { id: 'vati', name: 'Váti-dűlő', searchIds: [], searchNames: ['Váti'] },
+            { id: 'betsek', name: 'Betsek-dűlő', searchIds: [], searchNames: ['Betsek'] },
+            { id: 'steiger', name: 'Steiger-dűlő', searchIds: [], searchNames: ['Steiger'] }
+        ];
+
+        // Chart Registry to destroy previous charts if needed
+        const chartInstances = {};
+
+        // DOM elements
+        const fileInput = document.getElementById('csv-file-input');
+        const dropZone = document.getElementById('drop-zone');
+        const uploadSection = document.getElementById('upload-section');
+        const statusPlaceholder = document.getElementById('status-placeholder');
+        const loadingSpinner = document.getElementById('loading-spinner');
+        const dashboardContent = document.getElementById('dashboard-content');
+        const vineyardMenu = document.getElementById('vineyard-menu');
+        const reportsContainer = document.getElementById('reports-container');
+
+        // Drag & Drop event listeners
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropZone.classList.add('bg-wine-50', 'border-wine-500');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                dropZone.classList.remove('bg-wine-50', 'border-wine-500');
+            }, false);
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                fileInput.files = files;
+                handleFile(files[0]);
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                handleFile(e.target.files[0]);
+            }
+        });
+
+        function handleFile(file) {
+            statusPlaceholder.classList.add('hidden');
+            loadingSpinner.classList.remove('hidden');
+            dashboardContent.classList.add('hidden');
+
+            Papa.parse(file, {
+                header: true,
+                skipEmptyLines: true,
+                dynamicTyping: true,
+                complete: function(results) {
+                    processCSVData(results.data);
+                },
+                error: function(err) {
+                    alert("Hiba történt a CSV beolvasása közben: " + err.message);
+                    loadingSpinner.classList.add('hidden');
+                    statusPlaceholder.classList.remove('hidden');
+                }
+            });
+        }
+
+        function cleanString(str) {
+            if (!str) return '';
+            return str.toString().trim().toLowerCase()
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, ""); // Remove accents for robust mapping
+        }
+
+        function processCSVData(rows) {
+            console.log("Összes beolvasott sor:", rows.length);
+            const compiledVineyards = [];
+
+            targetVineyards.forEach(target => {
+                let matchedRows = [];
+
+                // 1. Match by specified IDs first
+                if (target.searchIds.length > 0) {
+                    matchedRows = rows.filter(r => {
+                        const rowId = parseInt(r.azonosito || r.ID || r.id);
+                        return target.searchIds.includes(rowId);
+                    });
+                }
+
+                // 2. If no match by ID or searching also by Name
+                if (matchedRows.length === 0) {
+                    matchedRows = rows.filter(r => {
+                        const rowNameClean = cleanString(r.nev || r.NEV || r.Name || '');
+                        return target.searchNames.some(searchN => {
+                            const searchClean = cleanString(searchN);
+                            return rowNameClean.includes(searchClean);
+                        });
+                    });
+                }
+
+                if (matchedRows.length > 0) {
+                    // Compile or aggregate row data
+                    const aggregated = aggregateRows(matchedRows, target.name);
+                    compiledVineyards.push({
+                        config: target,
+                        data: aggregated,
+                        rawRows: matchedRows
+                    });
+                } else {
+                    console.warn(`Nem található adat a következő dűlőhöz: ${target.name}`);
+                }
+            });
+
+            renderDashboard(compiledVineyards);
+        }
+
+        // AGGREGATION UTILITY
+        function aggregateRows(rows, targetName) {
+            // Core Basic Info
+            const first = rows[0];
+            const name = targetName || first.nev || 'Ismeretlen dűlő';
+            const ids = rows.map(r => r.azonosito).join(', ');
+            
+            // Unique Wine Regions & Municipalities
+            const borvidekek = [...new Set(rows.map(r => r.borvidekek || r.borvidek).filter(Boolean))].join(', ');
+            const telepulesek = [...new Set(rows.map(r => r.telepulesek || r.telepules).filter(Boolean))].join(', ');
+            
+            // Sum of area
+            const totalArea = rows.reduce((sum, r) => sum + parseFloat(r.terulet_hektar || r.terulet || 0), 0);
+
+            // Extract elevation statistics (weighted average based on area if multiple)
+            let minAlt = Infinity;
+            let maxAlt = -Infinity;
+            let sumAlt = 0;
+            let totalAltWeight = 0;
+
+            // Extract slope statistics (weighted average based on area if multiple)
+            let minSlope = Infinity;
+            let maxSlope = -Infinity;
+            let sumSlope = 0;
+            let totalSlopeWeight = 0;
+
+            rows.forEach(r => {
+                const area = parseFloat(r.terulet_hektar || r.terulet || 1);
+                
+                // Elevation (Magasság)
+                const rMin = parseFloat(r.core_minimum_magassag || r.minimum_magassag || r.core_min_magassag);
+                const rMax = parseFloat(r.core_maximum_magassag || r.maximum_magassag || r.core_max_magassag);
+                const rAvg = parseFloat(r.core_magassag_atlag || r.magassag_atlag || r.core_avg_magassag);
+
+                if (!isNaN(rMin) && rMin < minAlt) minAlt = rMin;
+                if (!isNaN(rMax) && rMax > maxAlt) maxAlt = rMax;
+                if (!isNaN(rAvg)) {
+                    sumAlt += rAvg * area;
+                    totalAltWeight += area;
+                }
+
+                // Slope (Lejtőszög)
+                const rMinSlope = parseFloat(r.core_minimum_lejtoszog || r.minimum_lejtoszog || r.core_min_lejtoszog);
+                const rMaxSlope = parseFloat(r.core_maximum_lejtoszog || r.maximum_lejtoszog || r.core_max_lejtoszog);
+                const rAvgSlope = parseFloat(r.core_lejtoszog_atlag || r.lejtoszog_atlag || r.core_avg_lejtoszog);
+
+                if (!isNaN(rMinSlope) && rMinSlope < minSlope) minSlope = rMinSlope;
+                if (!isNaN(rMaxSlope) && rMaxSlope > maxSlope) maxSlope = rMaxSlope;
+                if (!isNaN(rAvgSlope)) {
+                    sumSlope += rAvgSlope * area;
+                    totalSlopeWeight += area;
+                }
+            });
+
+            const avgAlt = totalAltWeight > 0 ? (sumAlt / totalAltWeight) : null;
+            const avgSlope = totalSlopeWeight > 0 ? (sumSlope / totalSlopeWeight) : null;
+
+            // Extract core Aspect fields dynamically (using classic GIS Aspect colors)
+            const aspectKeys = [
+                { key: 'core_eszak_terulet_hektar', label: 'Észak', color: '#ef4444' },         // Red
+                { key: 'core_eszakkelet_terulet_hektar', label: 'Északkelet', color: '#f97316' }, // Orange
+                { key: 'core_kelet_terulet_hektar', label: 'Kelet', color: '#eab308' },         // Yellow
+                { key: 'core_delkelet_terulet_hektar', label: 'Délkelet', color: '#84cc16' },     // Lime/Light Green
+                { key: 'core_del_terulet_hektar', label: 'Dél', color: '#10b981' },             // Emerald/Teal
+                { key: 'core_delnyugat_terulet_hektar', label: 'Délnyugat', color: '#3b82f6' },   // Blue
+                { key: 'core_nyugat_terulet_hektar', label: 'Nyugat', color: '#6366f1' },         // Indigo
+                { key: 'core_eszaknyugat_terulet_hektar', label: 'Északnyugat', color: '#ec4899' }, // Pink/Magenta
+                { key: 'core_siksag_terulet_hektar', label: 'Síkság / Fennsík', color: '#9ca3af' }, // Gray
+                { key: 'core_fennsik_terulet_hektar', label: 'Síkság / Fennsík', color: '#9ca3af' }
+            ];
+
+            const aspectData = {};
+            aspectKeys.forEach(item => {
+                aspectData[item.label] = 0;
+            });
+
+            // Sum up values
+            rows.forEach(r => {
+                aspectKeys.forEach(item => {
+                    const val = parseFloat(r[item.key]);
+                    if (!isNaN(val)) {
+                        aspectData[item.label] += val;
+                    }
+                });
+            });
+
+            // Extract core Slope fields (using standard GIS sequential orange scale)
+            const slopeMapping = [
+                { regex: /lejtoszog_0_5/i, label: '0-5° (Lapos/Enyhe)', color: '#fff7ed' },
+                { regex: /lejtoszog_5_10/i, label: '5-10° (Mérsékelt)', color: '#ffedd5' },
+                { regex: /lejtoszog_10_15/i, label: '10-15° (Közepes)', color: '#fed7aa' },
+                { regex: /lejtoszog_15_20/i, label: '15-20° (Meredek)', color: '#fdba74' },
+                { regex: /lejtoszog_20_25/i, label: '20-25° (Nagyon meredek)', color: '#f97316' },
+                { regex: /lejtoszog_25_30/i, label: '25-30° (Rendkívül meredek)', color: '#ea580c' },
+                { regex: /lejtoszog_30_35/i, label: '30-35° (Extrém meredek)', color: '#c2410c' },
+                { regex: /lejtoszog_35_40/i, label: '35-40° (Szakadékos)', color: '#9a3412' },
+                { regex: /lejtoszog_40_felett/i, label: '40° felett (Sziklafal)', color: '#7c2d12' }
+            ];
+
+            const slopeData = {};
+            slopeMapping.forEach(item => { slopeData[item.label] = 0; });
+
+            rows.forEach(r => {
+                Object.keys(r).forEach(col => {
+                    if (col.startsWith('core_')) {
+                        slopeMapping.forEach(item => {
+                            if (item.regex.test(col)) {
+                                const val = parseFloat(r[col]);
+                                if (!isNaN(val)) {
+                                    slopeData[item.label] += val;
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+
+            // Extract core Elevation (Magasság) zones
+            const elevationMapping = [
+                { regex: /magassag_.*?50_100/i, label: '50 - 100 m', color: '#eff6ff' },
+                { regex: /magassag_.*?100_150/i, label: '100 - 150 m', color: '#dbeafe' },
+                { regex: /magassag_.*?150_200/i, label: '150 - 200 m', color: '#bfdbfe' },
+                { regex: /magassag_.*?200_250/i, label: '200 - 250 m', color: '#93c5fd' },
+                { regex: /magassag_.*?250_300/i, label: '250 - 300 m', color: '#60a5fa' },
+                { regex: /magassag_.*?300_350/i, label: '300 - 350 m', color: '#3b82f6' },
+                { regex: /magassag_.*?350_400/i, label: '350 - 400 m', color: '#2563eb' },
+                { regex: /magassag_.*?400_450/i, label: '400 - 450 m', color: '#1d4ed8' },
+                { regex: /magassag_.*?450_500/i, label: '450 - 500 m', color: '#1e40af' },
+                { regex: /magassag_.*?500_felett/i, label: '500 m felett', color: '#172554' }
+            ];
+
+            const elevationData = {};
+            elevationMapping.forEach(item => { elevationData[item.label] = 0; });
+
+            rows.forEach(r => {
+                Object.keys(r).forEach(col => {
+                    if (col.startsWith('core_')) {
+                        elevationMapping.forEach(item => {
+                            if (item.regex.test(col)) {
+                                const val = parseFloat(r[col]);
+                                if (!isNaN(val)) {
+                                    elevationData[item.label] += val;
+                                }
+                            }
+                        });
+                    }
+                });
+            });
+
+            return {
+                name,
+                ids,
+                borvidekek,
+                telepulesek,
+                totalArea: totalArea.toFixed(2),
+                minAlt: minAlt !== Infinity ? minAlt.toFixed(1) : 'N/A',
+                maxAlt: maxAlt !== -Infinity ? maxAlt.toFixed(1) : 'N/A',
+                avgAlt: avgAlt ? avgAlt.toFixed(1) : 'N/A',
+                minSlope: minSlope !== Infinity ? minSlope.toFixed(1) : 'N/A',
+                maxSlope: maxSlope !== -Infinity ? maxSlope.toFixed(1) : 'N/A',
+                avgSlope: avgSlope ? avgSlope.toFixed(1) : 'N/A',
+                aspectData,
+                slopeData,
+                elevationData
+            };
+        }
+
+        // TEXT INTERPRETATION GENERATOR (HUNGARIAN)
+        function generateWrittenReport(d) {
+            const wineRegion = d.borvidekek;
+            const area = d.totalArea;
+            const avgAlt = d.avgAlt;
+            const maxAlt = d.maxAlt;
+            const minAlt = d.minAlt;
+
+            // Analyze predominant exposure (aspect)
+            let topAspect = "";
+            let maxAspectVal = -1;
+            Object.entries(d.aspectData).forEach(([k, v]) => {
+                if (v > maxAspectVal) {
+                    maxAspectVal = v;
+                    topAspect = k;
+                }
+            });
+
+            // Analyze predominant slope class
+            let topSlope = "";
+            let maxSlopeVal = -1;
+            let steepArea = 0;
+            let flatArea = 0;
+            Object.entries(d.slopeData).forEach(([k, v]) => {
+                if (v > maxSlopeVal) {
+                    maxSlopeVal = v;
+                    topSlope = k;
+                }
+                if (k.includes('Meredek') || k.includes('meredek') || k.includes('Szakadékos') || k.includes('Sziklafal')) {
+                    steepArea += v;
+                } else if (k.includes('Lapos') || k.includes('Mérsékelt')) {
+                    flatArea += v;
+                }
+            });
+
+            const totalSum = Object.values(d.slopeData).reduce((a, b) => a + b, 0);
+            const steepPct = totalSum > 0 ? ((steepArea / totalSum) * 100).toFixed(1) : 0;
+            const flatPct = totalSum > 0 ? ((flatArea / totalSum) * 100).toFixed(1) : 0;
+
+            // Structural Text Assembly
+            let analysisText = "";
+
+            if (d.name.includes("Kopár")) {
+                analysisText = `A **Kopár-dűlő** a Villányi borvidék, és egyben Magyarország egyik legikonikusabb, legdélibb fekvésű dűlője. Kiváló fekvése és egyedi domborzati viszonyai miatt igazi "cult-terroir". Az elemzés szerint a dűlő magassága ${minAlt} és ${maxAlt} méter között változik, átlagosan ${avgAlt} m tengerszint feletti magasságban, ami garantálja az optimális hűvösebb éjszakai légáramlatokat a nappali extrém hőség után. A terület uralkodó kitettsége a **${topAspect}**, amely szinte tökéletes beesési szöget biztosít a napsugaraknak. A meredekebb lejtők aránya (${steepPct}%) hozzájárul a kiváló vízelvezetéshez és gátolja a fagy megrekedését a sorok között. Az itt termelt Cabernet Franc és Bordeaux-i házasítások világszínvonalú mélységet és koncentrációt érnek el az egyedülálló mezoklímának köszönhetően.`;
+            } else if (d.name.includes("Nagy-Eged")) {
+                analysisText = `Az egri **Nagy-Eged-hegy** hazánk legmagasabban fekvő szőlőtermő területe, egy igazi legenda. A szőlőültetvények egészen ${maxAlt} méter magasságig kúsznak fel. Az átlagos ${avgAlt} méteres magasság rendkívüli napi hőingást biztosít, ami kulcsfontosságú a finom savak és az elegáns aromák megőrzésében. Az uralkodó lejtőszög kategória a **${topSlope}**, a rendkívül meredek, sziklás részek aránya kiugróan magas (${steepPct}%), ami miatt a talajművelés szinte kizárólag kézi erővel lehetséges. A domináns **${topAspect}** kitettség maximális besugárzást (inszolációt) biztosít, kompenzálva a tengerszint feletti magasságból adódó hűvösebb klímát. Ez a terroir adja a legszebb, leginkább ásványos Egri Bikavéreket és Grand Superior borokat.`;
+            } else if (d.name.includes("Görögszó")) {
+                analysisText = `A Szekszárdi borvidék gyöngyszeme, a **Görögszó-dűlő** lankásabb, meleg, de kiváló dinamikájú völgykatlan-jellegű domborzattal bír. Területe ${area} hektár, tengerszint feletti magassága ${minAlt} és ${maxAlt} méter között alakul. Domináns kitettsége a **${topAspect}**, amely a Szekszárdra jellemző lágy, selymes tanninok és a tökéletes fenolos érettség záloga. A lejtők többsége mérsékelt (${flatPct}% enyhébb lejtésű), ami megkönnyíti a gépi munkát, ugyanakkor a völgy mélyebb részein a légáramlás folyamatos, így a gombás megbetegedések kockázata minimális. A Görögszó híres a bársonyos Merlot és prémium Cabernet Franc borairól.`;
+            } else if (d.name.includes("Betsek")) {
+                analysisText = `A Tokaji borvidék történelmi első osztályú osztályozású dűlője, a **Betsek-dűlő** Mád határában fekszik. Tengerszint feletti magassága ${minAlt}-${maxAlt} méteri tartományban mozog, átlagosan ${avgAlt} m, mely az aszúsodáshoz (botritisz) szükséges ideális páratartalom és hőmérséklet egyensúlyát nyújtja. Kitettsége döntően **${topAspect}**, így a délutáni meleg napsugarak kiválóan érlelik a Furmint és Hárslevelű fürtöket. A lejtőszög többnyire enyhe vagy közepes, amely biztosítja a stabil talajszerkezetet és a tápanyagok megmaradását. A Betsekből származó borok monumentális testtel, finom krétás-ásványos karakterrel és gazdag beltartalommal hálálják meg a terroir adottságait.`;
+            } else if (d.name.includes("Slikker")) {
+                analysisText = `A tokaji **Slikker-dűlő** szintén Mád egyik legértékesebb és legizgalmasabb mikro-terroirja. Viszonylag alacsonyabb fekvésű és védettebb, átlagos tengerszint feletti magassága ${avgAlt} méter. Ennek a védett fekvésnek és a domináns **${topAspect}** kitettségnek köszönhetően korai fakadás és egyenletes érés jellemzi. A lejtőviszonyok kiválóak a mindennapi munkákhoz, miközben a lefolyó szeleket és vizeket kiválóan kiegyenlíti a nehéz vulkáni riolittufa talaj. Kiváló száraz Furmintok szülőhelye, melyekben a feszes savak és a dús gyümölcsösség tökéletes egyensúlyt alkotnak.`;
+            } else if (d.name.includes("Steiger")) {
+                analysisText = `A **Steiger-dűlő** szintén egy rendkívüli fekvésű és kiváló domborzati eloszlású terület. ${minAlt} és ${maxAlt} méteres magassági tartományával ideális mezoklímát biztosít. A dűlő uralkodó kitettsége a **${topAspect}**, amely kiváló napsugárzás-hasznosítást tesz lehetővé, elkerülve az északi szeleket. A lejtőszögek kiegyensúlyozott eloszlása miatt a csapadék egyenletesen szívódik fel, megakadályozva a pangóvizek kialakulását és támogatva a mélyre nyúló gyökérzet egészséges fejlődését.`;
+            } else {
+                // Generic high-quality geo report based on parsed statistics
+                analysisText = `A **${d.name}** a(z) **${wineRegion}** kiemelkedő adottságú területe, mely ${d.telepulesek} település határában fekszik, és ${area} hektár tiszta magterülettel (core area) büszkélkedhet.
+                Geomorfológiailag a terület magassági kiterjedése ${minAlt} és ${maxAlt} méter között mozog, átlagosan ${avgAlt} méter tengerszint feletti magasságban. Ez a magassági tartomány biztosítja a szőlő számára a kiegyensúlyozott vegetációs időszakot és a kiváló sav-cukor egyensúlyt.
+                A dűlő uralkodó kitettsége a **${topAspect}**, amely meghatározza a napi besugárzás dinamikáját, különösen a délutáni órákban, amikor a bogyók cukorfelhalmozása a legintenzívebb. 
+                A lejtőviszonyokat tekintve a dűlő domináns lejtőszöge a **${topSlope}**. A terület ${steepPct}%-a meredekebb lejtő, ami rendkívül kedvező a természetes vízelvezetés és a fagyvédelem szempontjából, de figyelmet igényel a talajerózió elleni védekezésben. A lankásabb területek (${flatPct}%) ugyanakkor kiváló és biztonságos művelhetőséget biztosítanak.`;
+            }
+
+            return analysisText;
+        }
+
+        // RENDER DASHBOARD & GENERATE CHARTS
+        function renderDashboard(compiled) {
+            // Hide loaders, show content
+            loadingSpinner.classList.add('hidden');
+            dashboardContent.classList.remove('hidden');
+
+            // Clear previous UI
+            vineyardMenu.innerHTML = '';
+            reportsContainer.innerHTML = '';
+
+            // 1. Build Navigation Sidebar
+            compiled.forEach((v, index) => {
+                const item = v.data;
+                const config = v.config;
+
+                const link = document.createElement('a');
+                link.href = `#report-${config.id}`;
+                link.className = `flex items-center justify-between p-3 rounded-lg text-sm font-medium transition duration-200 border border-gray-100 hover:bg-wine-50 hover:text-wine-800 bg-white shadow-sm`;
+                link.innerHTML = `
+                    <span class="flex items-center gap-2">
+                        <i class="fa-solid fa-wine-bottle text-wine-500"></i>
+                        <strong class="text-gray-700 font-semibold hover:text-wine-800">${item.name}</strong>
+                    </span>
+                    <span class="bg-wine-100 text-wine-800 px-2 py-0.5 rounded-full text-[10px] font-bold">${item.totalArea} ha</span>
+                `;
+                vineyardMenu.appendChild(link);
+            });
+
+            // 2. Build Reports & Render Charts
+            compiled.forEach((v, index) => {
+                const item = v.data;
+                const config = v.config;
+
+                const card = document.createElement('div');
+                card.id = `report-${config.id}`;
+                card.className = "bg-white rounded-2xl shadow-lg p-6 md:p-8 border border-gray-100 print-page-break flex flex-col gap-6 scroll-mt-6";
+
+                const textAnalysis = generateWrittenReport(item);
+
+                card.innerHTML = `
+                    <!-- Ribbon & Title -->
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-100 pb-5">
+                        <div>
+                            <span class="text-xs font-bold uppercase tracking-widest text-wine-600 bg-wine-50 px-3 py-1 rounded-full">${item.borvidekek}</span>
+                            <h2 class="font-serif text-2xl md:text-3xl font-bold text-gray-800 mt-2">${item.name}</h2>
+                            <p class="text-xs text-gray-500 mt-1 flex items-center gap-1">
+                                <i class="fa-solid fa-location-dot"></i> Település: <strong class="text-gray-700">${item.telepulesek}</strong> 
+                                | <i class="fa-solid fa-fingerprint"></i> CSV sorok: <strong class="text-gray-700">${item.ids}</strong>
+                            </p>
+                        </div>
+                        <div class="bg-gradient-to-br from-wine-800 to-wine-950 text-white px-5 py-3 rounded-xl shadow-md text-center self-stretch md:self-auto flex md:flex-col justify-between items-center">
+                            <span class="text-[10px] uppercase tracking-wider text-wine-200">Magterület</span>
+                            <span class="font-serif text-2xl md:text-3xl font-bold">${item.totalArea} <span class="text-sm">ha</span></span>
+                        </div>
+                    </div>
+
+                    <!-- Grid for Quick Stats (Elevation & Slope) -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Magasság statisztikák -->
+                        <div class="bg-[#faf8f5] p-4 rounded-xl border border-[#f3efe9] flex flex-col justify-between shadow-sm">
+                            <h4 class="text-xs font-bold uppercase tracking-wider text-wine-900 mb-3 flex items-center gap-1.5">
+                                <i class="fa-solid fa-mountain text-wine-600"></i> Tengerszint feletti magasság
+                            </h4>
+                            <div class="grid grid-cols-3 gap-2.5">
+                                <div class="bg-white p-2.5 rounded-lg border border-gray-100 text-center">
+                                    <span class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold block mb-0.5">Minimális</span>
+                                    <p class="text-base font-extrabold text-gray-800">${item.minAlt} m</p>
+                                </div>
+                                <div class="bg-white p-2.5 rounded-lg border border-gray-100 text-center">
+                                    <span class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold block mb-0.5">Maximális</span>
+                                    <p class="text-base font-extrabold text-gray-800">${item.maxAlt} m</p>
+                                </div>
+                                <div class="bg-white p-2.5 rounded-lg border border-gray-100 text-center">
+                                    <span class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold block mb-0.5">Átlagos</span>
+                                    <p class="text-base font-extrabold text-wine-700">${item.avgAlt} m</p>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Lejtőszög statisztikák -->
+                        <div class="bg-[#faf8f5] p-4 rounded-xl border border-[#f3efe9] flex flex-col justify-between shadow-sm">
+                            <h4 class="text-xs font-bold uppercase tracking-wider text-wine-900 mb-3 flex items-center gap-1.5">
+                                <i class="fa-solid fa-angle-up text-orange-600"></i> Lejtőszög statisztika
+                            </h4>
+                            <div class="grid grid-cols-3 gap-2.5">
+                                <div class="bg-white p-2.5 rounded-lg border border-gray-100 text-center">
+                                    <span class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold block mb-0.5">Minimális</span>
+                                    <p class="text-base font-extrabold text-gray-800">${item.minSlope}°</p>
+                                </div>
+                                <div class="bg-white p-2.5 rounded-lg border border-gray-100 text-center">
+                                    <span class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold block mb-0.5">Maximális</span>
+                                    <p class="text-base font-extrabold text-gray-800">${item.maxSlope}°</p>
+                                </div>
+                                <div class="bg-white p-2.5 rounded-lg border border-gray-100 text-center">
+                                    <span class="text-[9px] text-gray-500 uppercase tracking-wider font-semibold block mb-0.5">Átlagos</span>
+                                    <p class="text-base font-extrabold text-orange-700">${item.avgSlope}°</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Geomorphological Analysis Text -->
+                    <div class="prose max-w-none text-gray-700 leading-relaxed bg-wine-50/30 p-5 rounded-xl border border-wine-100/50">
+                        <h4 class="font-serif text-lg font-bold text-wine-900 mb-2 flex items-center gap-2">
+                            <i class="fa-solid fa-feather-pointed"></i> Geomikroklimatikus Jellemzés & Terroir Értékelés
+                        </h4>
+                        <p class="text-sm md:text-base">${textAnalysis.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')}</p>
+                    </div>
+
+                    <!-- 3 Pie Charts Grid -->
+                    <div>
+                        <h4 class="font-serif text-base font-bold text-gray-800 mb-4 pb-2 border-b flex items-center gap-2">
+                            <i class="fa-solid fa-chart-pie text-wine-600"></i> Domborzati Arányok Vizualizációja & Jelkulcsa (Core Területek)
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            
+                            <!-- Elevation Zone Pie Chart -->
+                            <div class="bg-gray-50 p-4 rounded-xl border border-gray-100 flex flex-col items-center justify-between">
+                                <div class="w-full flex flex-col items-center">
+                                    <h5 class="text-xs font-bold text-gray-600 mb-3 text-center uppercase tracking-wider">1. Magassági Zónák Aránya</h5>
+                                    <div class="w-full max-w-[170px] h-[170px] relative">
+                                        <canvas id="chart-elevation-${config.id}"></canvas>
+                                    </div>
+                                </div>
+                                <!-- Dynamic Legend Container -->
+                                <div id="legend-elevation-${config.id}" class="mt-4 w-full space-y-1.5 border-t border-gray-200/60 pt-3 max-h-[150px] overflow-y-auto custom-scrollbar"></div>
+                            </div>
+
+                            <!-- Slope Class Pie Chart -->
+                            <div class="bg-gray-50 p-4 rounded-xl border border-gray-100 flex flex-col items-center justify-between">
+                                <div class="w-full flex flex-col items-center">
+                                    <h5 class="text-xs font-bold text-gray-600 mb-3 text-center uppercase tracking-wider">2. Lejtőszög Kategóriák</h5>
+                                    <div class="w-full max-w-[170px] h-[170px] relative">
+                                        <canvas id="chart-slope-${config.id}"></canvas>
+                                    </div>
+                                </div>
+                                <!-- Dynamic Legend Container -->
+                                <div id="legend-slope-${config.id}" class="mt-4 w-full space-y-1.5 border-t border-gray-200/60 pt-3 max-h-[150px] overflow-y-auto custom-scrollbar"></div>
+                            </div>
+
+                            <!-- Aspect Class Pie Chart -->
+                            <div class="bg-gray-50 p-4 rounded-xl border border-gray-100 flex flex-col items-center justify-between">
+                                <div class="w-full flex flex-col items-center">
+                                    <h5 class="text-xs font-bold text-gray-600 mb-3 text-center uppercase tracking-wider">3. Kitettségi Osztályok</h5>
+                                    <div class="w-full max-w-[170px] h-[170px] relative">
+                                        <canvas id="chart-aspect-${config.id}"></canvas>
+                                    </div>
+                                </div>
+                                <!-- Dynamic Legend Container -->
+                                <div id="legend-aspect-${config.id}" class="mt-4 w-full space-y-1.5 border-t border-gray-200/60 pt-3 max-h-[150px] overflow-y-auto custom-scrollbar"></div>
+                            </div>
+
+                        </div>
+                    </div>
+                `;
+
+                reportsContainer.appendChild(card);
+
+                // Build Chart.js charts after inserting card to DOM
+                setTimeout(() => {
+                    createPieChart(`chart-elevation-${config.id}`, item.elevationData, 'ha', 'Magasság');
+                    createPieChart(`chart-slope-${config.id}`, item.slopeData, 'ha', 'Lejtőszög');
+                    createPieChart(`chart-aspect-${config.id}`, item.aspectData, 'ha', 'Kitettség');
+                }, 100);
+            });
+        }
+
+        // CHART GENERATION HELPER
+        function createPieChart(canvasId, dataObject, unit = 'ha', type = '') {
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) return;
+
+            // Filter out 0 or N/A values to keep the charts clean and readable
+            const labels = [];
+            const dataValues = [];
+            const backgroundColors = [];
+
+            // Classical circular GIS Aspect colors
+            const aspectColors = {
+                'Észak': '#ef4444',          // Piros
+                'Északkelet': '#f97316',     // Narancs
+                'Kelet': '#eab308',          // Sárga
+                'Délkelet': '#84cc16',       // Lime / Világoszöld
+                'Dél': '#10b981',            // Smaragd / Zöld
+                'Délnyugat': '#3b82f6',      // Kék
+                'Nyugat': '#6366f1',          // Indigo
+                'Északnyugat': '#ec4899',    // Rózsaszín/Magenta
+                'Síkság / Fennsík': '#9ca3af' // Szürke
+            };
+
+            // Classic sequential Orange-to-Rust scale for Slope
+            const slopeColors = {
+                '0-5° (Lapos/Enyhe)': '#fff7ed',
+                '5-10° (Mérsékelt)': '#ffedd5',
+                '10-15° (Közepes)': '#fed7aa',
+                '15-20° (Meredek)': '#fdba74',
+                '20-25° (Nagyon meredek)': '#f97316',
+                '25-30° (Rendkívül meredek)': '#ea580c',
+                '30-35° (Extrém meredek)': '#c2410c',
+                '35-40° (Szakadékos)': '#9a3412',
+                '40° felett (Sziklafal)': '#7c2d12'
+            };
+
+            const elevationColors = {
+                '50 - 100 m': '#eff6ff',
+                '100 - 150 m': '#dbeafe',
+                '150 - 200 m': '#bfdbfe',
+                '200 - 250 m': '#93c5fd',
+                '250 - 300 m': '#60a5fa',
+                '300 - 350 m': '#3b82f6',
+                '350 - 400 m': '#2563eb',
+                '400 - 450 m': '#1d4ed8',
+                '450 - 500 m': '#1e40af',
+                '500 m felett': '#172554'
+            };
+
+            const defaultPalette = ['#e11d48', '#be123c', '#9f1239', '#fb7185', '#fda4af', '#fecdd3', '#ffe4e6'];
+
+            let colorPalette = defaultPalette;
+            if (type === 'Kitettség') colorPalette = aspectColors;
+            if (type === 'Lejtőszög') colorPalette = slopeColors;
+            if (type === 'Magasság') colorPalette = elevationColors;
+
+            let idx = 0;
+            Object.entries(dataObject).forEach(([label, value]) => {
+                if (value > 0.01) { // ignore insignificantly small partitions
+                    labels.push(label);
+                    dataValues.push(parseFloat(value.toFixed(2)));
+                    
+                    if (Array.isArray(colorPalette)) {
+                        backgroundColors.push(colorPalette[idx % colorPalette.length]);
+                    } else {
+                        backgroundColors.push(colorPalette[label] || '#9ca3af');
+                    }
+                    idx++;
+                }
+            });
+
+            // Calculate percentages
+            const total = dataValues.reduce((a, b) => a + b, 0);
+
+            // Populate custom HTML Legend under the chart container
+            const legendId = canvasId.replace('chart-', 'legend-');
+            const legendContainer = document.getElementById(legendId);
+            if (legendContainer) {
+                legendContainer.innerHTML = '';
+                labels.forEach((label, i) => {
+                    const val = dataValues[i];
+                    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                    const color = backgroundColors[i];
+                    
+                    const legendItem = document.createElement('div');
+                    legendItem.className = "flex items-center justify-between text-[11px] py-1 border-b border-gray-100 last:border-0";
+                    legendItem.innerHTML = `
+                        <span class="flex items-center gap-1.5 truncate pr-2">
+                            <span class="w-2.5 h-2.5 rounded-full shrink-0 border border-gray-300" style="background-color: ${color}"></span>
+                            <span class="truncate text-gray-700 font-medium">${label}</span>
+                        </span>
+                        <span class="shrink-0 text-gray-500 font-semibold text-right">
+                            ${val.toFixed(1)} ${unit} <span class="text-wine-700 font-bold ml-1">(${pct}%)</span>
+                        </span>
+                    `;
+                    legendContainer.appendChild(legendItem);
+                });
+            }
+
+            // Destroy existing chart instance if any to prevent memory leaks
+            if (chartInstances[canvasId]) {
+                chartInstances[canvasId].destroy();
+            }
+
+            if (dataValues.length === 0) {
+                // Handle no data elegantly
+                const ctx = canvas.getContext('2d');
+                ctx.fillStyle = "#6b7280";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.font = "12px sans-serif";
+                ctx.fillText("Nincs releváns adat", canvas.width / 2, canvas.height / 2);
+                return;
+            }
+
+            chartInstances[canvasId] = new Chart(canvas, {
+                type: 'doughnut',
+                data: {
+                    labels: labels,
+                    datasets: [{
+                        data: dataValues,
+                        backgroundColor: backgroundColors,
+                        borderWidth: 1.5,
+                        borderColor: '#ffffff'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false // We use our much superior custom HTML legend instead
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: function(context) {
+                                    const val = context.raw;
+                                    const pct = total > 0 ? ((val / total) * 100).toFixed(1) : 0;
+                                    return ` ${context.label}: ${val} ${unit} (${pct}%)`;
+                                }
+                            }
+                        }
+                    },
+                    cutout: '55%'
+                }
+            });
+        }
+    </script>
+</body>
+</html>
