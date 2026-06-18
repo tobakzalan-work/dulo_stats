@@ -266,6 +266,11 @@
     <script>
         // TARGET VINEYARDS CONFIGURATION
         const targetVineyards = [
+            { id: 'bacsi', name: 'Bácsi-hegy', searchIds: [1544], searchNames: ['Bácsi-hegy'] },
+            { id: 'kolostor', name: 'Kolostor-domb dűlő', searchIds: [1543], searchNames: ['Kolostor-domb dűlő'] },
+            { id: 'taposokut', name: 'Taposókút-dűlő', searchIds: [1369], searchNames: ['Taposókút-dűlő'] },
+            { id: 'grofi', name: 'Grófi-dűlő', searchIds: [446], searchNames: ['Grófi-dűlő'] },
+            { id: 'apatsagi', name: 'Apátsági-dűlő', searchIds: [30], searchNames: ['Apátsági-dűlő'] },
             { id: 'kopar', name: 'Kopár-dűlő', searchIds: [717, 718], searchNames: ['Kopár'] },
             { id: 'nagyeged', name: 'Nagy-Eged-hegy', searchIds: [], searchNames: ['Nagy-Eged-hegy'] },
             { id: 'cserekuti', name: 'Csere-kúti-dűlő', searchIds: [], searchNames: ['Csere-kút'] },
@@ -364,7 +369,7 @@
 
         // FETCH GEOJSON DATA
         function fetchAndProcessGeoJSON() {
-            fetch('dulo_all_join_3857.geojson')
+            fetch('dulo_all_join_3857_v2.geojson')
                 .then(response => {
                     if (!response.ok) {
                         throw new Error(`Nem sikerült betölteni a GeoJSON-t: ${response.status}`);
